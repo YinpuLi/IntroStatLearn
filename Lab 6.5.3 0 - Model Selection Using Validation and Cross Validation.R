@@ -43,3 +43,28 @@ coef(regfit.best,10)
 
 # Cross validation
 # We must perform best subset selection within each of the k training sets.
+k=10
+set.seed(1)
+folds=sample(1:k,nrow(Hitters),replace=TRUE)
+cv.errors=matrix(NA,k,19,dimnames=list(NULL,paste(1:19)))
+
+# For loop that performs cross-validation. In the jth fold, the elements of folds that equal j are in the test set, and the remainder are in the training set. We make our predictions for each model size (using our new predict() method), compute the test errors on the appropriate subset, and store them in the appropriate slot in the matrix cv.errors.
+#Outer loop over k folds
+for(j in 1:k){
+   #Fit on all observations but those with j as our training set
+   best.fit=regsubsets(Salary~.,data=Hitters[folds!=j,],nvmax=19)
+   #Inner loop over 19 sizes
+   for(i in 1:19){
+      # Predict all 19 versions using j'th fold as test set
+      pred=predict(best.fit,Hitters[folds==j,],id=i)
+      cv.errors[j,i] = mean((Hitters$Salary[folds==j]-pred)^2)
+   }
+}
+mean.cv.errors=apply(cv.errors,2,mean)
+mean.cv.errors
+par(mfrow=c(1,1))
+plot(mean.cv.errors,type='b')
+
+# perform best subset selection on the full data set 
+reg.best=regsubsets(Salary~.,data=Hitters,nvmax=19)
+coef(reg.best,11)
