@@ -1,0 +1,308 @@
+---
+title: "Homework Chapter 7"
+author: "Barret Miller"
+date: "February 28, 2016"
+output: html_document
+---
+
+
+### 7.9.3
+```{r 7.9.3}
+par(mfrow=c(1,1))
+y = function(x){
+  1 + x + -2*(((x-1)^2)*I(x>=1))
+}
+plot(y,xlim=c(-2,2))
+points(y=y(0),0,pch=19,col="red")
+abline(v=0)
+abline(h=1)
+abline(v=1)
+```
+
+
+### 7.9.4
+```{r 7.9.4}
+y = function(x){
+   # b1(X) = I(0 ≤ X ≤ 2) − (X −1)I(1 ≤ X ≤ 2)
+   # b2(X) = (X −3)I(3 ≤ X ≤ 4)+I(4 < X ≤ 5)
+   1 + (I(x>=0 && x<=2) - ((x-1)*I(x>=1 && x<=2))) + 3*((x-3)*I(x>=3 && x<=4) + I(x>4 && x<=5))
+}
+x=seq(-2,2,by=0.01)
+yp = sapply(x,FUN=y)
+plot(x,yp,xlim=c(-2,2),ylim=c(0,2.5))
+#points(x=x,y=y(x),pch=19,col="red")
+```
+
+
+### 7.9.6 Part a
+Perform polynomial regression to predict wage using age. Use cross-validation to select the optimal degree d for the polyno- mial. What degree was chosen, and how does this compare to the results of hypothesis testing using ANOVA? Make a plot of the resulting polynomial fit to the data.
+Here, I will perform 10-fold cross validation to compare models with polynomials up to degree 5
+```{r 7.9.6}
+library(ISLR)
+attach(Wage)
+
+# Assign each observation a fold
+set.seed(1)
+folds = sample(1:10,size=nrow(Wage),replace=T)
+
+# Check the distribution of fold assignment integers, make sure they are roughly even.
+table(folds)
+
+# Set up a matrix which will have 1 row for every CV iteration. 1 column for polynomial degrees 1-5.
+cvErrors = matrix(nrow=10,ncol=5)
+
+# Loop over degrees of polynomial 
+for(d in 1:5){
+   # Loop over folds of cv
+   for(k in 1:10){
+      fit=lm(wage~poly(age,d),data=Wage,subset=(folds!=k))
+      preds=predict(fit,newdata=Wage[(folds==k),])
+      cvErrors[k,d]=mean((preds-Wage[folds==k,c("wage")])^2)
+   }   
+}
+
+# Find which degree has lowest average MSE over all k folds:
+plot(apply(cvErrors,2,mean))
+bestPoly = which.min(apply(cvErrors,2,mean))
+points(bestPoly,apply(cvErrors,2,mean)[bestPoly],pch=4,col="red",lwd=3)
+```
+
+The above plot shows that 4 is the best polynomial to use, but it doesn't offer much improvement over 2 or three. In any case, we'll still use 4 for now to fit the entire dataset, and then plot the dataset with the fit.
+```{r}
+bestFit = lm(wage~poly(age,bestPoly),data=Wage)
+summary(bestFit)
+plot(age,wage,xlim=range(age),ylim=range(wage),col="darkgrey",cex=.25)
+ageXGrid = seq(range(age)[1],range(age)[2])
+predsYFit = predict(bestFit,newdata=data.frame(age=ageXGrid),se=T)
+seLines = cbind(predsYFit$fit + 2*predsYFit$se.fit,
+                predsYFit$fit - 2*predsYFit$se.fit)
+lines(ageXGrid,predsYFit$fit,col="red")
+matlines(ageXGrid,seLines,col="blue",lty=3)
+```
+
+### 7.9.6 Part b
+Since the built-in cut function seems to suck for some reason, I built my own. Notice how unbalanced the default cut function makes the data, despite the documentation, which states
+
+> When breaks is specified as a single number, the range of the data is divided into breaks pieces of equal length, and then the outer limits are moved away by 0.1% of the range to ensure that the extreme values both fall within the break intervals.
+
+```{r}
+findCuts = function(v,n,warn=F) {
+   if(n<2) return(NA)
+   minVal = range(v)[1] - .1
+   maxVal = range(v)[2] + .1
+   internalCutIdx = seq(1:(n-1)) * floor(length(v)/n)
+   internalCutVals = v[order(v)][internalCutIdx]
+   
+   fLen = length(internalCutVals)
+   uLen = length(unique(internalCutVals))
+   
+   if(fLen != uLen && warn == T){
+      warning(c("Internal break vector will be coerced from length ", fLen, " to length ", uLen, 
+                " to maintain uniqueness of breaks"))
+   }
+   #print(internalCutIdx)
+   return(unique(c(minVal, internalCutVals, maxVal)))
+}
+
+table(cut(age,findCuts(age,2)))
+table(cut(age,2))
+```
+
+Now we'll use the cut function to create bins of dummy variables to break the continuous quantitative age variable up into a discrete set of categorical variables. We'll do this for the entire range of x, and use cross validation to find the best cut of the data.
+```{r, message=FALSE}
+ageGrid = seq(range(age)[1],range(age)[2])
+cvErrors = matrix(nrow=10,ncol=length(ageGrid))
+
+# Loop over all the cuts 
+for(c in 1:length(ageGrid)){
+   # Cross validate for every k
+   for(k in 1:10){
+      if(c<2){
+         fitck = lm(wage~age,data=Wage,subset=(folds!=k))
+      }
+      else{
+         kCuts = findCuts(age[(folds!=k)],c)
+         #print(paste0("Fitting cut ",c))
+         #print(paste0("Fitting cut ",c," with breaks: ",paste0(kCuts,collapse=",")))
+         fitck = lm(wage~cut(age,kCuts),data=Wage,subset=(folds!=k))
+      }
+      predsck = predict(fitck,newdata=Wage[(folds==k),])
+      cvErrors[k,c] = mean((predsck-Wage[(folds==k),c("age")])^2)
+   }
+}
+
+
+
+#Average the cvErrors for all the cuts:
+cutMSEs = apply(cvErrors,2,mean)
+plot(cutMSEs)
+```
+
+The above is not exactly what we want, I see after looking at the solution. What ends up happening with my above method is that each k training set and test set are cut separately using the same breaks, which are first found on the training set. A different set of breaks is found k times. Then, I predict on the test set using those cuts found on the training set. Each test set will be small compared to the training set, and will probably not have the same distribution of observations to cut bins. I don't understand exactly what is happening, but after seeing the solution, it seems much better to add a cut field to the dataset before doing any cross validation. Also, the cv.glm would have made things much easier. Note: the below still does run into the same technical problem I was running into trying to compare cuts for the entire range of age: "Factor has new levels" at 31 cuts. I don't see how the prediction set could have levels not in the training set, unless they were at the boundary, but these aren't. Also, printing out the levels that get created by the cuts shows that this particular level seems to exist. 
+```{r}
+library(boot)
+cvs = rep(NA,10)
+for(c in 1:10){
+#for(c in 1:length(ageGrid)){
+      #print(c)
+      if(c<2){
+         fitc = glm(wage~age,data=Wage)
+      }
+      else{
+         Wage$ageCut <- cut(Wage$age,c)
+         #print(levels(Wage$ageCut))
+         fitc = glm(wage~ageCut,data=Wage)
+      }
+   
+   cvs[c] = cv.glm(Wage,fitc,K=10)$delta[1]
+}
+bestCut = which.min(cvs)
+plot(cvs)
+points(bestCut, cvs[bestCut], pch=4, col="red",lwd=3)
+```
+
+Modeling it this way allows you to predict on age, but have the model transform the variable for you. The added benefit is that it's easy to plot predictions vs. age.
+```{r}
+bestFit1 = glm(wage~cut(age, bestCut),data=Wage)
+summary(bestFit1)
+
+plot(age,wage,xlim=range(age),ylim=range(wage),col="darkgrey",cex=.25)
+predsYFit = predict(bestFit1,newdata=data.frame(age=ageXGrid),se=T)
+seLines = cbind(predsYFit$fit + 2*predsYFit$se.fit,
+                predsYFit$fit - 2*predsYFit$se.fit)
+lines(ageXGrid,predsYFit$fit,col="red")
+matlines(ageXGrid,seLines,col="blue",lty=3)
+```
+
+Modeling it this way, you need to know how to make it cut the same way. It becomes more difficult to plot the prediction vs. age, because this requires you to pass the cut to the model, instead of age to the model. The ultimate model is the same, but the way in which you pass arguments changes. Below, you can see a box plot of the now categorical variable of the age bins vs. the wage outcome, with predictions for each bin overlayed on top. You have to be careful with ordering the vectors to make sure they line up, but you can see that the predictions are close to the median for each cut, and within the inter-quartile range between the first and third quartiles.
+```{r}
+Wage$ageCut = cut(Wage$age,bestCut)
+bestFit2 = glm(wage~ageCut,data=Wage)
+summary(bestFit2)
+plot(Wage$ageCut,wage,ylim=range(wage),col="darkgrey",cex=.25)
+predsYFit = predict(bestFit2,newdata=data.frame(ageCut=Wage$ageCut[order(Wage$ageCut)]))
+points(Wage$ageCut[order(Wage$ageCut)],predsYFit,col="red")
+```
+
+### 7.9.7
+
+> The Wage data set contains a number of other features not explored in this chapter, such as marital status (maritl), job class (jobclass), and others. Explore the relationships between some of these other predictors and wage, and use non-linear fitting techniques in order to fit flexible models to the data. Create plots of the results obtained, and write a summary of your findings.
+
+Looks like being married, information work, and being asian contribute the most to average wage. 
+```{r 7.9.7}
+summary(Wage)
+par(mfrow=c(1,3))
+plot(wage~maritl)
+plot(wage~jobclass)
+plot(wage~race)
+```
+
+
+
+Below, I try several different non-linear models and use cross validation to compare. I can't use anova here, since these aren't subsets:
+```{r}
+library(gam)
+
+set.seed(1)
+folds = sample(1:10, nrow(Wage), replace=T)
+cv = matrix(rep(NA,30),nrow=10,ncol=3)
+for(k in 1:10){
+   # Fit each model
+   fit1 = gam(wage ~ year + lo(age,span=.7) + education  + maritl + jobclass + race, data=Wage, subset=(folds!=k))
+   fit2 = gam(wage ~ year + s(age,5) + education + maritl + jobclass + race, data=Wage, subset=(folds!=k))
+   fit3 = gam(wage ~ lo(year, span = 0.7) + s(age, 5) + education + jobclass + maritl, data = Wage, subset=(folds!=k))
+   
+   # Make predictions with each model
+   pred1 = predict(fit1,Wage[folds==k,])
+   pred2 = predict(fit2,Wage[folds==k,])
+   pred3 = predict(fit3,Wage[folds==k,])
+   
+   
+   cv[k,1] = mean((pred1 - Wage[folds==k,c("wage")])^2)
+   cv[k,2] = mean((pred2 - Wage[folds==k,c("wage")])^2)
+   cv[k,3] = mean((pred3 - Wage[folds==k,c("wage")])^2)
+}
+
+cvMSE = apply(cv,2,mean)
+par(mfrow=c(1,1))
+plot(cvMSE)
+points(which.min(cvMSE), cvMSE[which.min(cvMSE)],pch=4,lwd=3,col="red")
+
+fit2 = gam(wage ~ year + s(age,5) + education + maritl + jobclass + race, data=Wage)
+par(mfrow=c(3,3))
+plot(fit2)
+```
+
+Below, I try several non-linear models on the Auto dataset
+
+```{r}
+attach(Auto)
+summary(Auto)
+plot(Auto)
+Auto$cylinders = as.factor(Auto$cylinders)
+Auto$origin = as.factor(Auto$origin)
+
+set.seed(1)
+folds = sample(1:10, nrow(Auto), replace=T)
+cv = matrix(rep(NA,30),nrow=10,ncol=5)
+for(k in 1:10){
+   # Fit each model
+   fit1 = mean(mpg[folds!=k])
+   
+   fit2 = gam(mpg ~ cylinders + displacement + horsepower + weight + acceleration + year + origin, data=Auto, subset=(folds!=k))
+   
+   fit3 = gam(mpg ~ cylinders
+                  + poly(displacement,degree=3) 
+                  + poly(horsepower,degree=3) 
+                  + poly(weight,degree=3)  
+                  + poly(acceleration,degree=3)  
+                  + poly(year,degree=3)   
+                  + origin
+              ,data=Auto
+              ,subset=(folds!=k)
+          )
+   
+   fit4 = gam(mpg ~ cylinders 
+                  + s(displacement,df=5) 
+                  + s(horsepower,df=5) 
+                  + s(weight,df=5)  
+                  + s(acceleration,df=5)  
+                  + s(year,df=5)   
+                  + origin 
+              ,data=Auto
+              ,subset=(folds!=k)
+          )
+   
+   fit5 = gam(mpg ~ cylinders
+                  + lo(displacement,span=.25) 
+                  + lo(horsepower,span=.25) 
+                  + lo(weight,span=.25)  
+                  + lo(acceleration,span=.25)  
+                  + lo(year,span=.25)   
+                  + origin
+              ,data=Auto
+              ,subset=(folds!=k)
+          )
+   
+   # Make predictions with each model
+   pred1 = rep(fit1,nrow(Auto[folds==k,]))
+   pred2 = predict(fit2,Auto[folds==k,])
+   pred3 = predict(fit3,Auto[folds==k,])
+   pred4 = predict(fit4,Auto[folds==k,])
+   pred5 = predict(fit5,Auto[folds==k,])
+   
+   
+   cv[k,1] = mean((pred1 - Auto[folds==k,c("mpg")])^2)
+   cv[k,2] = mean((pred2 - Auto[folds==k,c("mpg")])^2)
+   cv[k,3] = mean((pred3 - Auto[folds==k,c("mpg")])^2)
+   cv[k,4] = mean((pred4 - Auto[folds==k,c("mpg")])^2)
+   cv[k,5] = mean((pred5 - Auto[folds==k,c("mpg")])^2)
+}
+
+cvMSE = apply(cv,2,mean)
+par(mfrow=c(1,1))
+plot(cvMSE)
+points(which.min(cvMSE), cvMSE[which.min(cvMSE)],pch=4,lwd=3,col="red")
+
+
+```
