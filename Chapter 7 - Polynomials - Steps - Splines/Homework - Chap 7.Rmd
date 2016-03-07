@@ -414,6 +414,9 @@ points(which.min(rssv),rssv[which.min(rssv)],col="red",pch=19)
 
 Here, we'll use cross validation to find the best polynomial from 1 to 10. It finds that a third degree polynomial appears to do best on average for the 10 cross validation sets. 
 ```{r}
+library(MASS)
+library(boot)
+attach(Boston)
 set.seed(10)
 cvMSE = rep(NA,10)
 for(i in 1:10){
@@ -423,12 +426,160 @@ for(i in 1:10){
 par(mfrow=c(1,1))
 plot(cvMSE,type="l")
 points(which.min(cvMSE), cvMSE[which.min(cvMSE)],col="red",pch=19)
+
+
 ```
 
-Now we will use basis splines on the dis variable with 4 degrees of freedom.
+Now we will use basis splines on the dis variable with 4 degrees of freedom. Since this is a cubic spline, we have (degree + 1) + number of knots degrees of freedom. So if we are limiting df to 4, then we would seemingly have 0 degrees of freedom left over for any knots. However, you can count out a constant that is absorbed in the intercept, so we have room for 1 knot. Letting R choose the knot automatically, it chooses it at the 50% quantile, which is dis = 3.20745.
 ```{r}
 library(splines)
 attr(bs(dis,df=4),"knots")
 attr(bs(dis,df=4),"degree")
-mBs = bs(dis,df=4)
+
+disGrid = seq(range(dis)[1], range(dis)[2],by = .1)
+
+fit = glm(nox~bs(dis,df=4),data=Boston)
+pred = predict(fit,newdata = data.frame(dis=disGrid))
+plot(dis,nox,col="darkgrey",cex=.25)
+lines(disGrid,pred,col="red")
+
+par(mar=c(1,1,1,1))
+par(mfrow=c(4,3))
+rssv = rep(NA,10)
+for(i in 3:10){
+   fit = glm(nox~bs(dis,i),data=Boston)
+   pred = predict(fit,newdata = data.frame(dis=disGrid))
+   rssv[i] = sum(fit$residuals^2)
+   
+   plot(dis,nox,col="darkgrey",cex=.25)
+   lines(disGrid,pred,col="red")
+   text(9,.8,paste("DF", i))
+   text(9,.6,paste("RSS=",round(rssv[i],3)))
+}
+
+plot(rssv,xlab="DF",ylab="RSS")
+points(which.min(rssv),rssv[which.min(rssv)],col="red",pch=19)
+
+set.seed(10)
+cvMSE = rep(NA,10)
+for(i in 3:10){
+   fit = glm(nox~bs(dis,i),data=Boston)
+   cvMSE[i] = cv.glm(Boston,fit,K=10)$delta[1]
+}
+par(mfrow=c(1,1),mar=c(5, 4, 4, 2) + 0.1)
+plot(cvMSE,type="l")
+points(which.min(cvMSE), cvMSE[which.min(cvMSE)],col="red",pch=19)
+
+fit = glm(nox~bs(dis,5),data=Boston)
+pred = predict(fit,newdata = data.frame(dis=disGrid))
+rss = sum(fit$residuals^2)
+plot(dis,nox,col="darkgrey",cex=.25)
+lines(disGrid,pred,col="red")
+text(9,.8,paste("DF", 5))
+text(9,.6,paste("RSS=",round(rss,3)))
+```
+
+### 7.9.10
+
+Now we'll use the College data set, and attempt to predict the out of state tuition using the other variables.
+
+```{r}
+library(ISLR)
+library(leaps)
+library(gam)
+data(College)
+attach(College)
+
+train = sample(c(T,F),nrow(College),replace=T)
+test = (!train)
+
+bestRegFit = regsubsets(Outstate~., data = College, nvmax = 17, method = "forward", subset=train)
+bics = summary(bestRegFit)$bic
+plot(bics)
+points(which.min(bics),bics[which.min(bics)],col="red",pch=19)
+
+adjr2s = summary(bestRegFit)$adjr2
+plot(adjr2s)
+points(which.max(adjr2s),adjr2s[which.max(adjr2s)],col="red",pch=19)
+
+# Have to get rid of the factor variable that was renamed in the output due to dummy var handling
+bestCoefs = names(coef(bestRegFit,id = 10))[-c(1,2)]
+summary(College[,bestCoefs])
+
+# Apply spline function to all chosen qualitative vars
+bestCoefs = sapply(bestCoefs[-1],FUN = function(s){return(paste0("s(",s,",df=5)"))})
+# Add back in the factor variable. Could make generic function to handle this
+bestCoefs = c("Private",bestCoefs)
+
+formulaExp = paste0("Outstate~",paste0(bestCoefs,collapse="+"),collapse="")
+formulaExp
+form = eval(parse(text=formulaExp))
+fit = gam(form,data=College,subset=train)
+par(mar=c(4,1,4,1),mfrow=c(4,3))
+plot(fit)
+
+summary(fit)
+
+pred = predict(fit,newdata=College[test,])
+nullPred = mean(College[train,c("Outstate")])
+mseNull = mean((College[test,c("Outstate")]-nullPred)^2)
+mse = mean((College[test,c("Outstate")]-pred)^2)
+```
+
+Looking at the summary of the gam fitted above, it looks like the non-parametric effects of Accept, Personal, Terminal, perc.alumni, and Expend have significant p-values, indicating evidence for non-linearity in these predictors. However, if you look at the plot, Accept, Enroll, Room.Board, and Expend look linear to the eye.  
+
+
+### 7.9.11
+We now explore backfitting. From the book:
+ 
+> Suppose that we would like to perform multiple linear regression, but we do not have software to do so. Instead, we only have software to perform simple linear regression. Therefore, we take the following iterative approach: we repeatedly hold all but one coefficient esti- mate fixed at its current value, and update only that coefficient estimate using a simple linear regression. The process is continued un- til convergence—that is, until the coefficient estimates stop changing.
+
+```{r}
+set.seed(42)
+x1 = rnorm(100)
+x2 = rnorm(100)
+y = .45*x1 + .67*x2 + rnorm(100)
+
+beta1 = 6
+
+# Keeping βˆ1 fixed, fit the model:
+#  Take out the effect of x1 on y, using our randomly-assumed value of b1hat.
+a = y-beta1*x1
+# Regress x2 onto y with the assumed effect of x1 taken out, and find the x2 coefficient.
+beta2=lm(a~x2)$coef[2]
+
+# Now, keeping βˆ2 fixed, fit the model:
+#  Take the found effect of x2 out of y, and regress x1 onto that to find a new coefficient for x1, beta1
+a = y-beta2*x2
+beta1 = lm(a~x1)$coef[2]
+
+betas = matrix(NA,nrow=1000,ncol=3)
+
+for(i in 1:1000){
+   a = y-beta1*x1
+   beta2 = lm(a~x2)$coef[2]
+   
+   a = y-beta2*x2
+   fit = lm(a~x1)
+   beta1 = fit$coef[2]
+
+   beta0 = fit$coef[1]
+   
+   betas[i,1] = beta0
+   betas[i,2] = beta1
+   betas[i,3] = beta2
+}
+
+betas[1:10,]
+
+plot(1:1000,ylim=c(-1,1))
+lines(betas[,1],col="green")
+lines(betas[,2],col="red")
+lines(betas[,3],col="blue")
+
+fit = lm(y~x1+x2)
+coef(fit)
+abline(h = fit$coef[1], lty = "dashed", lwd = 3, col = rgb(0, 0, 0, alpha = 0.4))
+abline(h = fit$coef[2], lty = "dashed", lwd = 3, col = rgb(0, 0, 0, alpha = 0.4))
+abline(h = fit$coef[3], lty = "dashed", lwd = 3, col = rgb(0, 0, 0, alpha = 0.4))
 ```
