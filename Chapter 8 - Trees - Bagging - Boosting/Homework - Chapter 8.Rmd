@@ -54,3 +54,240 @@ lines(1:500, rf.boston2$test$mse, col = "red", type = "l")
 lines(1:500, rf.boston3$test$mse, col = "blue", type = "l")
 legend("topright", c("m = p", "m = p/2", "m = sqrt(p)"), col = c("green", "red", "blue"), cex = 1, lty = 1)
 ```
+
+### 8.4.8
+8. In the lab, a classification tree was applied to the Carseats data set af- ter converting Sales into a qualitative response variable. Now we will seek to predict Sales using regression trees and related approaches, treating the response as a quantitative variable.
+(a) Split the data set into a training set and a test set.
+(b) Fit a regression tree to the training set. Plot the tree, and inter- pret the results. What test MSE do you obtain?
+(c) Use cross-validation in order to determine the optimal level of tree complexity. Does pruning the tree improve the test MSE?
+```{r}
+library(ISLR)
+library(tree)
+data(Carseats)
+attach(Carseats)
+set.seed(1)
+train = sample(nrow(Carseats),nrow(Carseats)/2)
+test.y = Carseats[-train,"Sales"]
+tree.carseats = tree(Sales~.,data=Carseats,subset=train)
+summary.carseats = summary(tree.carseats)
+summary.carseats
+plot(tree.carseats)
+text(tree.carseats,pretty=0)
+
+tree.pred = predict(tree.carseats, newdata=Carseats[-train,])
+mean((tree.pred-test.y)^2)
+
+cv.carseats = cv.tree(tree.carseats)
+names(cv.carseats)
+cv.carseats
+
+plot(cv.carseats$size, cv.carseats$dev,type="b")
+points(which.min(cv.carseats$dev),cv.carseats$dev[which.min(cv.carseats$dev)],col="red",pch=19,cex=1.25)
+prune.carseats = prune.tree(tree.carseats,best = which.min(cv.carseats$dev))
+plot(prune.carseats)
+text(prune.carseats,pretty=0)
+
+prune.pred = predict(prune.carseats, Carseats[-train,])
+mean((prune.pred-test.y)^2)
+```
+
+
+(d) Use the bagging approach in order to analyze this data. What test MSE do you obtain? Use the importance() function to de- termine which variables are most important.
+```{r}
+library(randomForest)
+set.seed(1)
+bag.carseats = randomForest(Sales~.,data=Carseats,mtry=10,subset=train,importance=T)
+bag.carseats
+yhat.bag = predict(bag.carseats,newdata=Carseats[-train,])
+mean((yhat.bag - test.y)^2)
+importance(bag.carseats)
+varImpPlot(bag.carseats)
+```
+
+(e) Use random forests to analyze this data. What test MSE do you obtain? Use the importance() function to determine which vari- ables are most important. Describe the effect of m, the number of variables considered at each split, on the error rate obtained.
+```{r}
+set.seed(1)
+rf5.carseats = randomForest(Sales~.,data=Carseats,mtry=5,subset=train,importance=T)
+rf3.carseats = randomForest(Sales~.,data=Carseats,mtry=3,subset=train,importance=T)
+rf5.carseats
+rf3.carseats
+
+yhat5.rf = predict(rf5.carseats,newdata=Carseats[-train,])
+yhat3.rf = predict(rf3.carseats,newdata=Carseats[-train,])
+
+mean((yhat5.rf-test.y)^2)
+mean((yhat3.rf-test.y)^2)
+
+par(mfrow=c(2,2))
+varImpPlot(rf5.carseats)
+varImpPlot(rf3.carseats)
+```
+
+### 8.4.9
+9. This problem involves the OJ data set which is part of the ISLR package.
+(a) Create a training set containing a random sample of 800 observations, and a test set containing the remaining observations.
+(b) Fit a tree to the training data, with Purchase as the response and the other variables as predictors. Use the summary() function to produce summary statistics about the tree, and describe the results obtained. What is the training error rate? How many terminal nodes does the tree have?
+
+```{r}
+library(ISLR)
+
+data(OJ)
+attach(OJ)
+
+set.seed(1)
+train = sample(1:nrow(OJ),800)
+OJ.train = OJ[train,]
+OJ.test = OJ[-train,]
+
+tree.OJ = tree(Purchase~.,OJ.train)
+summary(tree.OJ)
+```
+
+The MSE is .7305, and thr tree has 8 terminal nodes. 
+(c) Type in the name of the tree object in order to get a detailed text output. Pick one of the terminal nodes, and interpret the information displayed.
+```{r}
+tree.OJ
+```
+
+We get to node 7 by first having a LoyalCH >= 0.508643, then by having a LoyalCH >=0.764572. If both of those things are true, then there's a greater than 96% probability that CH will be purchased. There were 278 observations in this branch/terminal node with an 86.14 deviance.
+(d) Create a plot of the tree, and interpret the results.
+```{r}
+plot(tree.OJ)
+text(tree.OJ,pretty=0)
+```
+
+The most important factor is having a loyalty to CH of less than ~.509. Loyalty to the brand is all over the place. If your loyalty is less thatn .5 but more than .26, then price difference and the presence of a special on CH makes a difference. 
+(e) Predict the response on the test data, and produce a confusion matrix comparing the test labels to the predicted test labels. What is the test error rate?
+```{r}
+pred.OJ = predict(tree.OJ,newdata=OJ.test,type = "class")
+table(pred.OJ,OJ.test$Purchase)
+1-mean(pred.OJ==OJ.test$Purchase)
+```
+
+The test error rate is about 23%.
+(f) Apply the cv.tree() function to the training set in order to determine the optimal tree size.
+```{r}
+set.seed(3)
+cv.OJ = cv.tree(tree.OJ,FUN=prune.misclass)
+cv.OJ
+plot(cv.OJ$size,cv.OJ$dev,type="b")
+```
+
+A tree with 5 nodes does the best, tieing with a tree with 8 nodes. 
+(i) Produce a pruned tree corresponding to the optimal tree size obtained using cross-validation. If cross-validation does not lead to selection of a pruned tree, then create a pruned tree with five terminal nodes.
+(j) Compare the training error rates between the pruned and un- pruned trees. Which is higher?
+```{r}
+prune.OJ = prune.misclass(tree.OJ,best=5)
+plot(prune.OJ)
+text(prune.OJ,pretty=0)
+summary(prune.OJ)
+summary(tree.OJ)
+```
+
+The training misclassification error rate for both trees is .165.
+(k) Compare the test error rates between the pruned and unpruned trees. Which is higher?
+```{r}
+pred.prune.OJ = predict(prune.OJ,newdata=OJ.test,type="class")
+table(pred.prune.OJ,OJ.test$Purchase)
+mean(pred.prune.OJ != OJ.test$Purchase)
+mean(pred.OJ != OJ.test$Purchase)
+```
+
+The test error rate also appears to be exactly the same: .226. 
+
+### 8.4.10
+10. We now use boosting to predict Salary in the Hitters data set.
+(a) Remove the observations for whom the salary information is unknown, and then log-transform the salaries.
+```{r}
+data("Hitters")
+attach(Hitters)
+
+Hitters = Hitters[!is.na(Hitters$Salary),]
+Hitters$Salary = log(Hitters$Salary)
+```
+
+(b) Create a training set consisting of the first 200 observations, and a test set consisting of the remaining observations.
+```{r}
+train = sample(1:nrow(Hitters),200)
+Hitters.train = Hitters[train,]
+Hitters.test = Hitters[-train,]
+```
+
+
+(c) Perform boosting on the training set with 1,000 trees for a range of values of the shrinkage parameter λ. Produce a plot with different shrinkage values on the x-axis and the corresponding training set MSE on the y-axis.
+(d) Produce a plot with different shrinkage values on the x-axis and the corresponding test set MSE on the y-axis.
+```{r}
+library(gbm)
+set.seed(1)
+
+shrinkGrid = seq(.1,.001,by=-.001)
+shrinkGrid
+
+MSE = matrix(NA,nrow=length(shrinkGrid),ncol=2)
+for(i in 1:length(shrinkGrid)){
+   lambda = shrinkGrid[i]
+   boost.hitters = gbm(Salary~.,data=Hitters.train,distribution="gaussian",n.trees=1000,shrinkage=lambda)
+   boost.pred.train = predict(boost.hitters,Hitters.train,n.trees=1000)
+   boost.pred.test = predict(boost.hitters,Hitters.test,n.trees=1000)
+   train.MSE = mean((boost.pred.train - Hitters.train$Salary)^2)
+   test.MSE = mean((boost.pred.test - Hitters.test$Salary)^2)
+   MSE[i,1] = train.MSE
+   MSE[i,2] = test.MSE
+}
+
+best.lambda = shrinkGrid[which.min(MSE[,2])]
+matplot(x=shrinkGrid,y=MSE,type="l",xlab="lambda",ylab="MSE")
+legend("topright",legend = c("Train","Test"),col=c("black","red"),lty=c(1,2))
+abline(v=best.lambda,col="blue",lty=2,lwd=.5)
+print(paste0("Best Test MSE: ", MSE[which.min(MSE[,2]),2]))
+```
+
+(e) Compare the test MSE of boosting to the test MSE that results from applying two of the regression approaches seen in Chapters 3 and 6.
+I'll use ridge regression and lasso methods, with the lambda tuning parameter for these methods chosen by cross validation on the training set. We'll then make predictions and calculate the test MSE for comparison with our boosting method above.
+```{r}
+library(glmnet)
+x.hitters.train = model.matrix(Salary~.,Hitters.train)[,-1]
+x.hitters.test = model.matrix(Salary~.,Hitters.test)[,-1]
+y.hitters.train = Hitters.train$Salary
+y.hitters.test = Hitters.test$Salary
+
+lambdaGrid = 10^seq(10,-2,length=100)
+
+cv.ridge = cv.glmnet(x.hitters.train,y.hitters.train,alpha=0)
+bestlam.ridge = cv.ridge$lambda.min
+cv.lasso = cv.glmnet(x.hitters.train,y.hitters.train,alpha=1)
+bestlam.lasso = cv.lasso$lambda.min
+ridge.hitters = glmnet(x.hitters.train,y.hitters.train,alpha=0,lambda=lambdaGrid)
+lasso.hitters = glmnet(x.hitters.train,y.hitters.train,alpha=1,lambda=lambdaGrid)
+
+ridge.pred = predict(ridge.hitters,s=bestlam.ridge,newx=x.hitters.test)
+lasso.pred = predict(lasso.hitters,s=bestlam.lasso,newx=x.hitters.test)
+
+ridge.MSE.test = mean((ridge.pred - y.hitters.test)^2)
+lasso.MSE.test = mean((lasso.pred - y.hitters.test)^2)
+
+print(paste0("Boost Test MSE: ", MSE[which.min(MSE[,2]),2]))
+print(paste0("Ridge Test MSE: ", ridge.MSE.test))
+print(paste0("Lasso Test MSE: ", lasso.MSE.test))
+```
+
+Boosting appears to have outperformed both ridge regression and the lasso on the test set. 
+(f) Which variables appear to be the most important predictors in the boosted model?
+```{r}
+summary(boost.hitters)
+```
+
+(g) Now apply bagging to the training set. What is the test set MSE for this approach?
+```{r}
+library(randomForest)
+
+bag.hitters = randomForest(Salary~.,data=Hitters.train,ntree=1000,mtry=19,importance=TRUE)
+bag.pred = predict(bag.hitters,newdata=Hitters.test)
+
+bag.MSE.test = mean((bag.pred - Hitters.test$Salary)^2)
+print(paste0("Bagging Test MSE: ",bag.MSE.test))
+```
+
+Bagging appears to have slightly outperformed boosting, ridge, and lasso.
+
+### 8.4.11
