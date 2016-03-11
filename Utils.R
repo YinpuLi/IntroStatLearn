@@ -50,3 +50,7 @@ findCuts = function(v,n) {
    internalCutIdx = seq(1:(n-1)) * floor(length(v)/n)
    return(c(minVal, v[order(v)][internalCutIdx], maxVal))
 }
+
+probFromLogit = function(z){
+   exp(z)/(1+exp(z))
+}
