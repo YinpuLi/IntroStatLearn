@@ -54,3 +54,9 @@ findCuts = function(v,n) {
 probFromLogit = function(z){
    exp(z)/(1+exp(z))
 }
+
+rocplot = function(pred,truth,...){
+   predob = prediction(pred,truth)
+   perf = performance(predob,"tpr","fpr")
+   plot(perf,...)
+}
