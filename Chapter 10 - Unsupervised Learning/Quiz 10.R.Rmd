@@ -1,0 +1,37 @@
+---
+title: "Quiz 10.R.1"
+author: "Barret Miller"
+date: "March 18, 2016"
+output: html_document
+---
+
+```{r}
+load("github/local/IntroStatLearn/Chapter 10 - Unsupervised Learning/10.R.RData")
+x.combine = rbind(x,x.test)
+
+pr.out = prcomp(x.combine,scale=T)
+pr.var = pr.out$sdev^2
+pr.var[1:5]
+pve = pr.var/sum(pr.var)
+pve[1:5]
+sum(pve[1:5])
+
+x.projected = predict(pr.out, x)
+df.train = data.frame(y=y, x.projected[,1:5])
+lm.pca.fit = lm(y~., data=df.train)
+
+x.test.projected = predict(pr.out, x.test)
+df.test = data.frame(y=y.test, x.test.projected[,1:5])
+lm.pca.pred = predict(lm.pca.fit, newdata=df.test)
+
+mean((lm.pca.pred - y.test)^2)
+
+
+
+df.train = data.frame(y, x)
+df.test = data.frame(y.test, x.test)
+lm.fit = lm(y~.,data=df.train)
+lm.pred = predict(lm.fit, newdata=df.test)
+
+mean((lm.pred - y.test)^2)
+```
